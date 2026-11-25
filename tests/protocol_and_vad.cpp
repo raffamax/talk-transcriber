@@ -17,7 +17,7 @@ int main() {
     packet.sampleCount = 960;
     std::memcpy(packet.channelName, "operator-a", 10);
     packet.instanceId[0] = 0xab;
-    assert(sizeof(packet) == 56);
+    assert(sizeof(packet) == 104);
     assert(packet.magic == kMagic);
     assert(packet.version == kVersion);
     assert(packet.headerBytes == sizeof(AudioPacketHeader));
@@ -31,9 +31,13 @@ int main() {
     assert(std::strcmp(decoded.channelName, "operator-a") == 0);
     assert(!readAudioPacketHeader(datagram.data(), datagram.size() - 1, decoded));
 
-    packet.version = kLegacyVersion;
-    packet.headerBytes = kLegacyHeaderBytes;
-    std::memcpy(datagram.data(), &packet, kLegacyHeaderBytes);
+    LegacyAudioPacketHeader legacy{};
+    legacy.sequence = packet.sequence;
+    legacy.sampleRate = packet.sampleRate;
+    legacy.channels = packet.channels;
+    legacy.sampleCount = packet.sampleCount;
+    std::memcpy(legacy.channelName, packet.channelName, sizeof(legacy.channelName));
+    std::memcpy(datagram.data(), &legacy, sizeof(legacy));
     assert(readAudioPacketHeader(datagram.data(), kLegacyHeaderBytes + 960 * sizeof(float), decoded));
     assert(decoded.sequence == 42 && decoded.instanceId[0] == 0);
 
