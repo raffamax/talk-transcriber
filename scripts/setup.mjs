@@ -1,9 +1,10 @@
 import { cp, mkdir, access } from "node:fs/promises";
 import { constants } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { homedir, platform } from "node:os";
+import { fileURLToPath } from "node:url";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const vst = join(root, "build-universal/plugin/TalkCapture_artefacts/VST3/Talk Capture.vst3");
 const model = join(root, "models/ggml-small.bin");
 const destination = join(homedir(), "Library/Audio/Plug-Ins/VST3/Talk Capture.vst3");
