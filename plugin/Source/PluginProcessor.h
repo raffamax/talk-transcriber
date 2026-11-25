@@ -30,11 +30,10 @@ public:
     std::uint64_t packetsAttempted() const noexcept { return sender.packetsAttempted(); }
     int lastSocketError() const noexcept { return sender.lastSocketError(); }
     bool socketReady() const noexcept { return sender.socketReady(); }
-    void setOperatorName(const juce::String& name) { sender.setChannelId(name.isNotEmpty() ? name : instanceId); }
+    void setOperatorName(const juce::String& name) { sender.setChannelName(name.isNotEmpty() ? name : juce::String("Talkback")); }
 private:
     juce::AudioProcessorValueTreeState state;
     AudioSender sender;
-    juce::String instanceId;
     std::atomic<float> inputPeak_{0.0f};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TalkCaptureAudioProcessor)
 };

@@ -10,7 +10,7 @@
 class AudioReceiver {
 public:
     using PacketHandler = std::function<void(const talk_transcriber::protocol::AudioPacketHeader&, std::vector<float>)>;
-    explicit AudioReceiver(std::uint16_t port, PacketHandler handler = {});
+    explicit AudioReceiver(std::uint16_t port, PacketHandler handler = {}, std::function<void()> onIdle = {});
     ~AudioReceiver();
     bool start();
     void stop();
@@ -23,5 +23,6 @@ private:
     std::atomic<std::uint64_t> packetsReceived_{0};
     std::thread worker_;
     PacketHandler handler_;
+    std::function<void()> onIdle_;
 };
 

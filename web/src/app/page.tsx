@@ -19,14 +19,17 @@ import { useTranscriptions } from "./useTranscriptions";
 export default function Home() {
   const { messages, status, clear } = useTranscriptions();
   const [channel, setChannel] = useState("all");
-  const channels = useMemo(
-    () => [...new Set(messages.map((m) => m.channelId))],
-    [messages],
-  );
+  const channels = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const message of messages) names.set(message.channelId, message.channelName ?? message.channelId);
+    for (const active of status.activeChannels) names.set(active.id, active.name);
+    return names;
+  }, [messages, status.activeChannels]);
+  const selectedChannel = channels.has(channel) ? channel : "all";
   const visible =
-    channel === "all"
+    selectedChannel === "all"
       ? messages
-      : messages.filter((m) => m.channelId === channel);
+      : messages.filter((m) => m.channelId === selectedChannel);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   useEffect(() => {
@@ -80,14 +83,14 @@ export default function Home() {
               >
                 <InputLabel>Canal</InputLabel>
                 <Select
-                  value={channel}
+                  value={selectedChannel}
                   label="Canal"
                   onChange={(e) => setChannel(e.target.value)}
                 >
                   <MenuItem value="all">Todos os canais</MenuItem>
-                  {channels.map((c) => (
-                    <MenuItem key={c} value={c}>
-                      {c}
+                  {[...channels].map(([id, name]) => (
+                    <MenuItem key={id} value={id}>
+                      {name}
                     </MenuItem>
                   ))}
                 </Select>
@@ -166,7 +169,7 @@ export default function Home() {
                       wordBreak: "break-word",
                     }}
                   >
-                    {m.channelId}
+                    {channels.get(m.channelId) ?? m.channelId}
                     {m.latencyMs !== undefined ? ` · ${m.latencyMs} ms` : ""}
                   </Typography>
                   <Typography

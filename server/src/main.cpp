@@ -15,6 +15,33 @@
 #include "VoiceDetector.h"
 #include "WebSocketPublisher.h"
 
+namespace {
+using Clock = std::chrono::steady_clock;
+
+struct ActiveChannel {
+    ActiveChannel(VoiceDetector::Config config, std::string name, Clock::time_point now, std::uint64_t sequence)
+        : detector(config), name(std::move(name)), lastSeen(now), latestSequence(sequence) {}
+
+    VoiceDetector detector;
+    std::string name;
+    Clock::time_point lastSeen;
+    std::uint64_t latestSequence;
+};
+
+std::string channelIdentifier(const talk_transcriber::protocol::AudioPacketHeader& header, const std::string& name) {
+    if (header.version == talk_transcriber::protocol::kLegacyVersion) return name;
+
+    constexpr char digits[] = "0123456789abcdef";
+    std::string id;
+    id.reserve(2 * sizeof(header.instanceId));
+    for (const auto byte : header.instanceId) {
+        id += digits[byte >> 4];
+        id += digits[byte & 0x0f];
+    }
+    return id;
+}
+}
+
 int main(int argc, char** argv) {
     std::string modelPath;
     bool useGpu = true;
@@ -47,31 +74,47 @@ int main(int argc, char** argv) {
         if (!whisper.ready()) { std::cerr << "Unable to load Whisper model: " << modelPath << "\n"; return 1; }
         std::cout << "Whisper model loaded (Portuguese): " << modelPath << "\n";
     }
-    std::unordered_map<std::string, VoiceDetector> detectors;
-    std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastSeen;
+    std::unordered_map<std::string, ActiveChannel> activeChannels;
+    const auto publishChannelStatus = [&] {
+        std::vector<WebSocketPublisher::ChannelStatus> channels;
+        channels.reserve(activeChannels.size());
+        for (const auto& [id, channel] : activeChannels) channels.push_back({id, channel.name});
+        publisher.publishStatus(whisper.ready(), channels);
+    };
+    const auto expireChannels = [&](Clock::time_point now) {
+        return std::erase_if(activeChannels, [now](const auto& entry) {
+            return now - entry.second.lastSeen > std::chrono::seconds(30);
+        }) > 0;
+    };
     std::uint64_t packetsLogged = 0;
-    AudioReceiver receiver(udpPort, [&whisper, &detectors, &lastSeen, &publisher, &vadMutex, &defaultVad, &vadConfigs, &vadResets, verbose, &packetsLogged](const auto& header, std::vector<float> samples) {
-        std::string channel(reinterpret_cast<const char*>(header.channelId), strnlen(reinterpret_cast<const char*>(header.channelId), sizeof(header.channelId)));
+    AudioReceiver receiver(udpPort, [&](const auto& header, std::vector<float> samples) {
+        const std::string name(header.channelName, strnlen(header.channelName, sizeof(header.channelName)));
+        const auto id = channelIdentifier(header, name);
+        const auto sequence = header.sequence;
         if (verbose && (packetsLogged++ == 0 || packetsLogged % 50 == 0))
-            std::cout << "audio packet channel=" << channel << " sequence=" << header.sequence
+            std::cout << "audio packet channel=" << name << " sequence=" << sequence
                       << " samples=" << samples.size() << " rate=" << header.sampleRate << "\n";
-        const auto now = std::chrono::steady_clock::now();
+        const auto now = Clock::now();
         VoiceDetector::Config config;
+        bool reset;
         {
             std::lock_guard lock(vadMutex);
-            if (vadResets.erase(channel) > 0) { detectors.erase(channel); lastSeen.erase(channel); }
+            reset = vadResets.erase(id) > 0;
             config = defaultVad;
-            if (const auto found = vadConfigs.find(channel); found != vadConfigs.end()) config = found->second;
-        }
-        for (auto seen = lastSeen.begin(); seen != lastSeen.end();) {
-            if (now - seen->second > std::chrono::seconds(30)) { detectors.erase(seen->first); seen = lastSeen.erase(seen); publisher.publishStatus(whisper.ready(), detectors.size()); }
-            else ++seen;
+            if (const auto found = vadConfigs.find(id); found != vadConfigs.end()) config = found->second;
         }
         config.silenceSamples = config.silenceSamples > 0 ? config.silenceSamples : static_cast<std::size_t>(header.sampleRate * 0.15);
-        auto [it, inserted] = detectors.try_emplace(channel, config);
-        lastSeen[channel] = now;
-        if (inserted) publisher.publishStatus(whisper.ready(), detectors.size());
-        auto segment = it->second.process(samples.data(), samples.size());
+        auto [it, inserted] = activeChannels.try_emplace(id, config, name, now, sequence);
+        auto& channel = it->second;
+        channel.lastSeen = now;
+        const bool renamed = sequence > channel.latestSequence && channel.name != name;
+        if (renamed) channel.name = name;
+        channel.latestSequence = std::max(channel.latestSequence, sequence);
+        if (reset && !inserted) channel.detector = VoiceDetector(config);
+
+        const bool expired = expireChannels(now);
+        if (inserted || renamed || expired) publishChannelStatus();
+        auto segment = channel.detector.process(samples.data(), samples.size());
         if (segment.empty() || !whisper.ready()) return;
 
         const int sourceRate = static_cast<int>(header.sampleRate);
@@ -82,19 +125,21 @@ int main(int argc, char** argv) {
             const auto source = static_cast<std::size_t>((static_cast<double>(i) * sourceRate) / 16000);
             if (source < segment.size()) audio.push_back(segment[source]);
         }
-        const auto inferenceStart = std::chrono::steady_clock::now();
+        const auto inferenceStart = Clock::now();
         auto text = whisper.transcribe(audio);
-        const auto latencyMs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - inferenceStart).count());
+        const auto latencyMs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - inferenceStart).count());
         if (!text.empty()) {
-            std::cout << "transcription channel=" << channel << " sequence=" << header.sequence << " latency_ms=" << latencyMs << ": " << text << "\n";
-            publisher.publishFinal(channel, text, header.sequence, latencyMs);
+            std::cout << "transcription channel=" << channel.name << " sequence=" << sequence << " latency_ms=" << latencyMs << ": " << text << "\n";
+            publisher.publishFinal(id, channel.name, text, sequence, latencyMs);
         }
+    }, [&] {
+        if (expireChannels(Clock::now())) publishChannelStatus();
     });
+    publishChannelStatus();
     if (!receiver.start()) { std::cerr << "Unable to bind localhost UDP audio receiver\n"; return 1; }
     std::cout << "Talk Transcriber server listening on 127.0.0.1:"
               << udpPort << "\nWebSocket: " << (websocketReady ? "127.0.0.1:" + std::to_string(websocketPort) : "disabled")
               << "\nVerbose UDP logging: " << (verbose ? "on" : "off") << "\nPress Ctrl+C to stop.\n";
-    publisher.publishStatus(whisper.ready(), detectors.size());
     std::cin.get();
     receiver.stop();
     publisher.stop();

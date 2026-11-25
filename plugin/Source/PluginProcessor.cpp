@@ -6,9 +6,7 @@ TalkCaptureAudioProcessor::TalkCaptureAudioProcessor()
                                       .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       state(*this, nullptr, "STATE", {
           std::make_unique<juce::AudioParameterBool>("captureEnabled", "Capture enabled", true)
-      }),
-      instanceId(juce::Uuid().toString()) {
-    sender.setChannelId("Talkback");
+      }) {
     sender.start();
 }
 
@@ -24,6 +22,11 @@ void TalkCaptureAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
 juce::AudioProcessorEditor* TalkCaptureAudioProcessor::createEditor() { return new TalkCaptureAudioProcessorEditor(*this); }
 void TalkCaptureAudioProcessor::getStateInformation(juce::MemoryBlock& dest) { if (auto xml = state.copyState().createXml()) copyXmlToBinary(*xml, dest); }
-void TalkCaptureAudioProcessor::setStateInformation(const void* data, int size) { if (auto xml = getXmlFromBinary(data, size)) state.replaceState(juce::ValueTree::fromXml(*xml)); }
+void TalkCaptureAudioProcessor::setStateInformation(const void* data, int size) {
+    if (auto xml = getXmlFromBinary(data, size)) {
+        state.replaceState(juce::ValueTree::fromXml(*xml));
+        setOperatorName(state.state.getProperty("operatorName", "Talkback").toString());
+    }
+}
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new TalkCaptureAudioProcessor(); }
 

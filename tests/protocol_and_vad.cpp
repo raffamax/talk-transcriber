@@ -1,6 +1,7 @@
 #include "AudioPacket.h"
 #include "VoiceDetector.h"
 #include "ChannelBuffer.h"
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstring>
@@ -14,12 +15,27 @@ int main() {
     packet.sampleRate = 48000;
     packet.channels = 1;
     packet.sampleCount = 960;
-    std::memcpy(packet.channelId, "operator-a", 10);
-    assert(sizeof(packet) == 40);
+    std::memcpy(packet.channelName, "operator-a", 10);
+    packet.instanceId[0] = 0xab;
+    assert(sizeof(packet) == 56);
     assert(packet.magic == kMagic);
     assert(packet.version == kVersion);
     assert(packet.headerBytes == sizeof(AudioPacketHeader));
     assert(packet.sampleCount <= kMaxSamplesPerPacket);
+
+    std::array<std::byte, sizeof(packet) + kMaxSamplesPerPacket * sizeof(float)> datagram{};
+    std::memcpy(datagram.data(), &packet, sizeof(packet));
+    AudioPacketHeader decoded{};
+    assert(readAudioPacketHeader(datagram.data(), datagram.size(), decoded));
+    assert(decoded.sequence == 42 && decoded.sampleCount == 960 && decoded.instanceId[0] == 0xab);
+    assert(std::strcmp(decoded.channelName, "operator-a") == 0);
+    assert(!readAudioPacketHeader(datagram.data(), datagram.size() - 1, decoded));
+
+    packet.version = kLegacyVersion;
+    packet.headerBytes = kLegacyHeaderBytes;
+    std::memcpy(datagram.data(), &packet, kLegacyHeaderBytes);
+    assert(readAudioPacketHeader(datagram.data(), kLegacyHeaderBytes + 960 * sizeof(float), decoded));
+    assert(decoded.sequence == 42 && decoded.instanceId[0] == 0);
 
     VoiceDetector detector({.threshold = 0.1f, .preRollSamples = 2, .silenceSamples = 3});
     const std::vector<float> quiet = {0.01f, 0.01f};

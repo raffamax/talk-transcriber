@@ -8,7 +8,7 @@
 AudioSender::AudioSender() : juce::Thread("Talk Capture sender") {}
 AudioSender::~AudioSender() { signalThreadShouldExit(); stopThread(500); }
 void AudioSender::start() { if (!isThreadRunning()) startThread(); }
-void AudioSender::setChannelId(juce::String id) { const juce::ScopedLock lock(metadataLock_); channelId_ = std::move(id); }
+void AudioSender::setChannelName(juce::String name) { const juce::ScopedLock lock(metadataLock_); channelName_ = std::move(name); }
 void AudioSender::push(const float* samples, int count, double rate) noexcept {
     if (count <= 0) return;
     int start = 0;
@@ -39,10 +39,10 @@ void AudioSender::run() {
         header.sampleRate = static_cast<std::uint32_t>(rates_[index]);
         header.channels = 1;
         header.sampleCount = static_cast<std::uint16_t>(sizes_[index]);
+        std::memcpy(header.instanceId, instanceId_.getRawData(), sizeof(header.instanceId));
         {
             const juce::ScopedLock lock(metadataLock_);
-            const auto utf8 = channelId_.toRawUTF8();
-            std::memcpy(header.channelId, utf8, juce::jmin(static_cast<size_t>(15), std::strlen(utf8)));
+            channelName_.copyToUTF8(header.channelName, sizeof(header.channelName));
         }
 
         std::array<std::byte, sizeof(header) + talk_transcriber::protocol::kMaxSamplesPerPacket * sizeof(float)> packet{};

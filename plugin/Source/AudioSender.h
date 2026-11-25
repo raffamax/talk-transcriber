@@ -11,7 +11,7 @@ public:
     ~AudioSender() override;
     void start();
     void push(const float* monoSamples, int count, double sampleRate) noexcept;
-    void setChannelId(juce::String id);
+    void setChannelName(juce::String name);
     std::uint64_t packetsSent() const noexcept { return packetsSent_.load(); }
     std::uint64_t packetsDropped() const noexcept { return packetsDropped_.load(); }
     std::uint64_t packetsAttempted() const noexcept { return packetsAttempted_.load(); }
@@ -24,7 +24,8 @@ private:
     std::array<int, 32> sizes_{};
     std::array<double, 32> rates_{};
     juce::CriticalSection metadataLock_;
-    juce::String channelId_{"channel-001"};
+    juce::String channelName_{"Talkback"};
+    const juce::Uuid instanceId_;
     std::uint64_t sequence_ = 0;
     std::atomic<std::uint64_t> packetsSent_{0};
     std::atomic<std::uint64_t> packetsDropped_{0};

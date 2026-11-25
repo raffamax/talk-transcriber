@@ -1,12 +1,14 @@
 #include "AudioReceiver.h"
 #include <array>
+#include <cerrno>
 #include <cstring>
-#include <iostream>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-AudioReceiver::AudioReceiver(std::uint16_t port, PacketHandler handler) : port_(port), handler_(std::move(handler)) {}
+AudioReceiver::AudioReceiver(std::uint16_t port, PacketHandler handler, std::function<void()> onIdle)
+    : port_(port), handler_(std::move(handler)), onIdle_(std::move(onIdle)) {}
 AudioReceiver::~AudioReceiver() { stop(); }
 
 bool AudioReceiver::start() {
@@ -26,25 +28,32 @@ bool AudioReceiver::start() {
 
 void AudioReceiver::stop() {
     if (!running_.exchange(false)) return;
-    if (socket_ >= 0) { ::shutdown(socket_, SHUT_RDWR); ::close(socket_); socket_ = -1; }
+    if (socket_ >= 0) ::shutdown(socket_, SHUT_RDWR);
     if (worker_.joinable()) worker_.join();
+    if (socket_ >= 0) { ::close(socket_); socket_ = -1; }
 }
 
 void AudioReceiver::run() {
-    std::array<std::byte, sizeof(talk_transcriber::protocol::AudioPacketHeader) + 4096> packet{};
+    using namespace talk_transcriber::protocol;
+    std::array<std::byte, sizeof(AudioPacketHeader) + kMaxSamplesPerPacket * sizeof(float)> packet{};
+    pollfd descriptor{socket_, POLLIN, 0};
     while (running_) {
+        const auto ready = ::poll(&descriptor, 1, 1000);
+        if (!running_) break;
+        if (ready == 0) {
+            if (onIdle_) onIdle_();
+            continue;
+        }
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready < 0 || !(descriptor.revents & POLLIN)) break;
+
         const auto count = ::recv(socket_, packet.data(), packet.size(), 0);
-        if (count < static_cast<ssize_t>(sizeof(talk_transcriber::protocol::AudioPacketHeader))) continue;
-        talk_transcriber::protocol::AudioPacketHeader header{};
-        std::memcpy(&header, packet.data(), sizeof(header));
-        if (header.magic != talk_transcriber::protocol::kMagic || header.version != talk_transcriber::protocol::kVersion) continue;
-        if (header.sampleCount > talk_transcriber::protocol::kMaxSamplesPerPacket) continue;
-        const auto payloadBytes = static_cast<std::size_t>(header.sampleCount) * sizeof(float);
-        if (static_cast<std::size_t>(count) < sizeof(header) + payloadBytes) continue;
+        AudioPacketHeader header{};
+        if (count < 0 || !readAudioPacketHeader(packet.data(), static_cast<std::size_t>(count), header)) continue;
         packetsReceived_++;
         if (handler_) {
             std::vector<float> samples(header.sampleCount);
-            std::memcpy(samples.data(), packet.data() + sizeof(header), payloadBytes);
+            if (!samples.empty()) std::memcpy(samples.data(), packet.data() + header.headerBytes, samples.size() * sizeof(float));
             handler_(header, std::move(samples));
         }
     }

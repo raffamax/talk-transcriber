@@ -86,25 +86,34 @@ void WebSocketPublisher::stop() {
     if (impl_->server) impl_->server->stop();
 #endif
 }
-void WebSocketPublisher::publishStatus(bool whisperReady, std::size_t channels) {
+void WebSocketPublisher::publishStatus(bool whisperReady, const std::vector<ChannelStatus>& channels) {
 #ifdef TALK_TRANSCRIBER_HAS_WEBSOCKET
     std::lock_guard lock(impl_->mutex);
     std::ostringstream json;
-    json << "{\"version\":1,\"type\":\"server.status\",\"whisperReady\":" << (whisperReady ? "true" : "false") << ",\"channels\":" << channels << "}";
+    json << "{\"version\":1,\"type\":\"server.status\",\"whisperReady\":" << (whisperReady ? "true" : "false")
+         << ",\"channels\":" << channels.size() << ",\"activeChannels\":[";
+    for (std::size_t i = 0; i < channels.size(); ++i) {
+        if (i > 0) json << ',';
+        json << "{\"id\":\"" << jsonEscape(channels[i].id) << "\",\"name\":\"" << jsonEscape(channels[i].name) << "\"}";
+    }
+    json << "]}";
     impl_->lastStatus = json.str();
     if (impl_->server) for (const auto& client : impl_->server->getClients()) client->sendText(impl_->lastStatus);
 #else
     (void) whisperReady; (void) channels;
 #endif
 }
-void WebSocketPublisher::publishFinal(const std::string& channelId, const std::string& text, std::uint64_t sequence, std::uint64_t latencyMs) {
+void WebSocketPublisher::publishFinal(const std::string& channelId, const std::string& channelName, const std::string& text,
+                                      std::uint64_t sequence, std::uint64_t latencyMs) {
 #ifdef TALK_TRANSCRIBER_HAS_WEBSOCKET
     std::lock_guard lock(impl_->mutex);
     std::ostringstream json;
-    json << "{\"version\":1,\"type\":\"transcription.final\",\"channelId\":\"" << jsonEscape(channelId) << "\",\"sequence\":" << sequence << ",\"latencyMs\":" << latencyMs << ",\"text\":\"" << jsonEscape(text) << "\"}";
+    json << "{\"version\":1,\"type\":\"transcription.final\",\"channelId\":\"" << jsonEscape(channelId)
+         << "\",\"channelName\":\"" << jsonEscape(channelName) << "\",\"sequence\":" << sequence
+         << ",\"latencyMs\":" << latencyMs << ",\"text\":\"" << jsonEscape(text) << "\"}";
     if (impl_->server) for (const auto& client : impl_->server->getClients()) client->sendText(json.str());
 #else
-    (void) channelId; (void) text; (void) sequence; (void) latencyMs;
+    (void) channelId; (void) channelName; (void) text; (void) sequence; (void) latencyMs;
 #endif
 }
 
