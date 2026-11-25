@@ -1,0 +1,15 @@
+{
+  "name": "talk-transcriber",
+  "private": true,
+  "workspaces": ["web"],
+  "scripts": {
+    "postinstall": "node scripts/setup.mjs",
+    "setup": "node scripts/setup.mjs",
+    "server": "sh scripts/start-server.sh",
+    "web": "sh scripts/start-dashboard.sh",
+    "install:vst": "node scripts/setup.mjs --vst-only",
+    "install-vst": "node scripts/setup.mjs --vst-only",
+    "start": "node scripts/start.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

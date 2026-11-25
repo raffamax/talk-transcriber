@@ -1,0 +1,15 @@
+build/
+/build-runtime/
+/build-whisper/
+/build-universal/
+/build-tests/
+cmake-build-*/
+node_modules/
+.next/
+out/
+*.user
+*.suo
+DerivedData/
+.DS_Store
+*.dSYM/
+models/*.bin

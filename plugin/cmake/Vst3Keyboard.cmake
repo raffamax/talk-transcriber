@@ -1,0 +1,23 @@
+# Compile a project-local JUCE wrapper with the VST3 keyboard callback enabled.
+set(juce_vst3_client_dir "${JUCE_DIR}/modules/juce_audio_plugin_client")
+set(juce_vst3_source "${juce_vst3_client_dir}/juce_audio_plugin_client_VST3.cpp")
+set(juce_vst3_entry "${juce_vst3_client_dir}/juce_audio_plugin_client_VST3.mm")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${juce_vst3_source}")
+file(READ "${juce_vst3_source}" wrapper)
+
+set(namespace_anchor "namespace juce\n{\n\nusing namespace Steinberg;")
+set(editor_anchor "~JuceVST3Editor() override = default; // NOLINT")
+foreach(anchor IN ITEMS "${namespace_anchor}" "${editor_anchor}")
+  string(FIND "${wrapper}" "${anchor}" anchor_position)
+  if(anchor_position EQUAL -1)
+    message(FATAL_ERROR "The JUCE VST3 wrapper changed. Review the Talk Capture keyboard integration.")
+  endif()
+endforeach()
+string(REPLACE "${namespace_anchor}" "#include \"PluginEditor.h\"\n\n${namespace_anchor}" wrapper "${wrapper}")
+string(REPLACE "${editor_anchor}" "${editor_anchor}\n\n#include \"Vst3Keyboard.inc\"" wrapper "${wrapper}")
+
+set(patched_wrapper "${CMAKE_CURRENT_BINARY_DIR}/TalkCaptureVst3.mm")
+file(CONFIGURE OUTPUT "${patched_wrapper}" CONTENT "${wrapper}" @ONLY)
+set_source_files_properties("${juce_vst3_entry}" PROPERTIES HEADER_FILE_ONLY TRUE)
+target_sources(TalkCapture_VST3 PRIVATE "${patched_wrapper}")
+target_include_directories(TalkCapture_VST3 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
