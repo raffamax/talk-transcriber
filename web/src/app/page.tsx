@@ -74,13 +74,6 @@ export default function Home() {
                 {status.channels}{" "}
                 {status.channels === 1 ? "canal ativo" : "canais ativos"}
               </Typography>
-            </Stack>
-            <Stack
-              direction="row"
-              spacing={1}
-              alignItems="center"
-              sx={{ width: { xs: "100%", sm: "auto" } }}
-            >
               <FormControl
                 size="small"
                 sx={{ minWidth: { xs: 0, sm: 190 }, flex: 1 }}
@@ -99,16 +92,24 @@ export default function Home() {
                   ))}
                 </Select>
               </FormControl>
+            </Stack>
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              sx={{ width: { xs: "100%", sm: "auto" } }}
+            >
               <Tooltip title="Limpar conversa">
                 <Button
                   variant="outlined"
-                  color="inherit"
+                  color="error"
                   onClick={() =>
                     confirm("Limpar o histórico local?") && clear()
                   }
                   aria-label="Limpar conversa"
+                  sx={{ textTransform: "none" }}
                 >
-                  Limpar
+                  Limpar conversa
                 </Button>
               </Tooltip>
             </Stack>

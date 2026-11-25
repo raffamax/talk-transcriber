@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 export type Transcription = { id: string; channelId: string; sequence: number; latencyMs?: number; text: string; receivedAt: number };
 const STORAGE_KEY = "talk-transcriber.transcriptions";
 const MAX_MESSAGES = 500;
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 function displayText(text: string) {
   return text.replace(/\[[^\]]*\]|\([^)]*\)/g, "").replace(/\s{2,}/g, " ").trim();
 }
@@ -19,7 +20,7 @@ export function useTranscriptions(url?: string) {
     const timer = setTimeout(() => {
       setMessages([]);
       localStorage.removeItem(STORAGE_KEY);
-    }, 15000);
+    }, INACTIVITY_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [messages]);
   useEffect(() => {
